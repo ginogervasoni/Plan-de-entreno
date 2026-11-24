@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS exercises(id TEXT PRIMARY KEY,name TEXT, muscle TEXT,
 CREATE TABLE IF NOT EXISTS weeks(id TEXT PRIMARY KEY, student TEXT REFERENCES users(id), monday TEXT, draft TEXT NOT NULL,published TEXT, UNIQUE(student,monday));
 CREATE TABLE IF NOT EXISTS media_tokens(hash TEXT PRIMARY KEY, session TEXT, exercise TEXT, video TEXT, expires INTEGER);
 CREATE TABLE IF NOT EXISTS attempts(key TEXT PRIMARY KEY, count INTEGER, expires INTEGER);`);
+if(!db.prepare('PRAGMA table_info(exercises)').all().some(c=>c.name==='youtube')){
+ db.exec('ALTER TABLE exercises ADD COLUMN youtube TEXT');
+}
 const one=(s,...a)=>db.prepare(s).get(...a);
 const all=(s,...a)=>db.prepare(s).all(...a);
 const run=(s,...a)=>db.prepare(s).run(...a);
@@ -29,6 +32,21 @@ const clean=(v,n=200)=>String(v??'').trim().slice(0,n);
 const email=v=>clean(v,254).toLowerCase();
 function fail(status,message){throw Object.assign(new Error(message),{status})}
 function requireValue(ok,msg){if(!ok)fail(400,msg)}
+function youtubeURL(value){
+ const input=clean(value,1000);
+ if(!input)return null;
+ let clip;
+ try{
+ const url=new URL(input);
+ if(url.protocol!=='https:'||url.username||url.password||url.port)throw Error();
+ if(url.hostname==='youtu.be')clip=/^\/([\w-]{11})\/?$/.exec(url.pathname)?.[1];
+ else if(['youtube.com','www.youtube.com','m.youtube.com'].includes(url.hostname)){
+ clip=url.pathname==='/watch'?url.searchParams.get('v'):/^\/(?:shorts|embed|live)\/([\w-]{11})\/?$/.exec(url.pathname)?.[1];
+ }
+ }catch{}
+ requireValue(/^[\w-]{11}$/.test(clip||''),'Pegá un enlace válido a un video de YouTube.');
+ return 'https://www.youtube.com/watch?v='+clip;
+}
 const goodPassword=p=>typeof p==='string'&&p.length>=12&&p.length<=128;
 function issue(user,kind,ttl){const key=token();run('DELETE FROM tokens WHERE expires<=?',Date.now());run('INSERT INTO tokens VALUES(?,?,?,?)',hash(key),user,kind,Date.now()+ttl);return key}
 const hour=3600000;
@@ -74,7 +92,7 @@ function schedule(days){
 function hydrate(raw){
  return JSON.parse(raw).map(d=>({...d,items:d.items.map(e=>{
  const x=one('SELECT * FROM exercises WHERE id=?',e.exercise);
- return {...e,name:x.name,instructions:x.instructions,video:!!x.video};
+ return {...e,name:x.name,instructions:x.instructions,video:!!x.video,youtube:x.youtube};
  })}));
 }
 function mayPlay(user,id){
@@ -194,13 +212,13 @@ async function api(req,res,url){
  run("DELETE FROM tokens WHERE user=? AND kind='invite'",u.id);
  return {link:new URL('/?invitacion='+issue(u.id,'invite',72*hour),base).href};
  }
- if(path==='/api/exercises'&&method==='GET')return all('SELECT id,name,muscle,equipment,instructions,video IS NOT NULL AS video FROM exercises ORDER BY name');
+ if(path==='/api/exercises'&&method==='GET')return all('SELECT id,name,muscle,equipment,instructions,video IS NOT NULL AS video,youtube FROM exercises ORDER BY name');
  if(path==='/api/exercises'&&method==='POST'){
  const b=await body(req),name=clean(b.name);
  requireValue(name,'Ingresá el nombre del ejercicio.');
- const fields=[name,clean(b.muscle),clean(b.equipment),clean(b.instructions,4000)];
- if(b.id){if(!run('UPDATE exercises SET name=?,muscle=?,equipment=?,instructions=? WHERE id=?',...fields,clean(b.id)).changes)fail(404,'Ejercicio no disponible.');return {id:b.id}}
- const id=token();run('INSERT INTO exercises VALUES(?,?,?,?,?,NULL)',id,...fields);return {id};
+ const fields=[name,clean(b.muscle),clean(b.equipment),clean(b.instructions,4000),youtubeURL(b.youtube)];
+ if(b.id){if(!run('UPDATE exercises SET name=?,muscle=?,equipment=?,instructions=?,youtube=CASE WHEN ? THEN ? ELSE youtube END WHERE id=?',...fields.slice(0,4),Object.hasOwn(b,'youtube')?1:0,fields[4],clean(b.id)).changes)fail(404,'Ejercicio no disponible.');return {id:b.id,youtube:one('SELECT youtube FROM exercises WHERE id=?',b.id).youtube}}
+ const id=token();run('INSERT INTO exercises(id,name,muscle,equipment,instructions,youtube) VALUES(?,?,?,?,?,?)',id,...fields);return {id,youtube:fields[4]};
  }
  const upload=path.match(/^\/api\/exercises\/([\w-]+)\/video$/);
  if(upload&&method==='PUT'){
@@ -243,7 +261,7 @@ async function api(req,res,url){
  const b=await body(req),days=schedule(b.days),raw=JSON.stringify(days);
  if(b.publish){
  requireValue(days.length&&days.every(d=>d.items.length),'Agregá al menos un ejercicio en cada día antes de publicar.');
- const missing=[...new Set(hydrate(raw).flatMap(d=>d.items.filter(e=>!e.video).map(e=>e.name)))];
+ const missing=[...new Set(hydrate(raw).flatMap(d=>d.items.filter(e=>!e.video&&!e.youtube).map(e=>e.name)))];
  if(missing.length&&!b.confirmMissing)return {missing};
  }
  const result=b.publish?run('UPDATE weeks SET draft=?,published=? WHERE id=?',raw,raw,readWeek[1]):run('UPDATE weeks SET draft=? WHERE id=?',raw,readWeek[1]);
