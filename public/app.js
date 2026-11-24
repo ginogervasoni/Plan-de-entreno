@@ -9,6 +9,8 @@ const $=(id)=>document.getElementById(id);
 const btn=(label,id,primary=false)=>'<button type="button" '+(id?'id="'+id+'" ':'')+(primary?'class="primary"':'')+'>'+label+'</button>';
 const opt=(value,label,selected)=>'<option value="'+esc(value)+'" '+(String(value)===String(selected)?'selected':'')+'>'+esc(label)+'</option>';
 const input=(label,name,value='',opts='')=>'<label>'+label+'<input name="'+name+'" value="'+esc(value)+'" '+opts+'></label>';
+const hasVideo=e=>!!(e.video||e.youtube);
+const videoLink=url=>url?'<a class="button-link" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Ver en YouTube <span aria-hidden="true">↗</span></a>':'';
 const area=(label,name,value)=>'<label>'+label+'<textarea name="'+name+'">'+esc(value)+'</textarea></label>';
 const formData=f=>Object.fromEntries(new FormData(f));
 const byDate=s=>new Date(s+'T12:00:00Z');
@@ -129,21 +131,26 @@ async function library(id){
  $('back-library').onclick=()=>go('biblioteca');
  c.innerHTML='<form id="exercise-form" class="card stack">'+input('Nombre','name',x.name,'required maxlength="200"')+
  '<div class="grid">'+input('Grupo muscular','muscle',x.muscle,'maxlength="200"')+input('Equipamiento','equipment',x.equipment,'maxlength="200"')+'</div>'+area('Indicaciones generales','instructions',x.instructions)+
- '<fieldset class="stack"><legend>Video MP4 · opcional</legend><div class="row"><span class="badge" id="video-state">'+(x.video?'Con video':'Sin video')+'</span>'+btn('Ver video','exercise-play')+'</div>'+
- '<label>'+ (x.video?'Reemplazar video':'Seleccionar video')+'<input id="file" type="file" accept="video/mp4,.mp4"></label><small>Hasta 100 MB. Para mayor compatibilidad, usá MP4 con video H.264.</small><progress id="progress" max="100" value="0" hidden></progress></fieldset>'+
+ '<fieldset class="stack"><legend>Video · opcional</legend><div class="row"><span class="badge" id="video-state">'+(hasVideo(x)?'Con video':'Sin video')+'</span>'+btn('Ver MP4','exercise-play')+'<span id="youtube-preview">'+videoLink(x.youtube)+'</span></div>'+
+ input('Enlace de YouTube','youtube',x.youtube,'type="url" maxlength="1000" placeholder="https://www.youtube.com/watch?v=…"')+
+ '<small>Podés subir un MP4, pegar un enlace de YouTube o usar las dos opciones. El enlace se abre en otra pestaña.</small>'+
+ '<label>'+ (x.video?'Reemplazar MP4':'Seleccionar archivo MP4')+'<input id="file" type="file" accept="video/mp4,.mp4"></label><small>Hasta 100 MB. Para mayor compatibilidad, usá MP4 con video H.264.</small><progress id="progress" max="100" value="0" hidden></progress></fieldset>'+
  '<div class="actions"><button class="primary" id="save-exercise">Guardar ejercicio</button></div><div class="feedback" role="status"></div></form>';
  const f=$('exercise-form'),file=$('file'),out=f.querySelector('.feedback');
- let saved=x.id,hasVideo=!!x.video;
- $('exercise-play').hidden=!hasVideo;$('exercise-play').onclick=()=>play(saved);
+ let saved=x.id,hasFile=!!x.video;
+ $('exercise-play').hidden=!hasFile;$('exercise-play').onclick=()=>play(saved);
  file.onchange=()=>{$('save-exercise').textContent=file.files.length?'Guardar y subir MP4':'Guardar ejercicio'};
  submit(f,async data=>{
  feedback(out,'Guardando ejercicio…');
- saved=(await api('/exercises','POST',{...data,id:saved})).id;
+ const result=await api('/exercises','POST',{...data,id:saved});
+ saved=result.id;
+ $('youtube-preview').innerHTML=videoLink(result.youtube);
+ $('video-state').textContent=hasFile||result.youtube?'Con video':'Sin video';
  history.replaceState(null,'','#biblioteca/'+saved);
  const video=file.files[0];
  if(!video){feedback(out,'Ejercicio guardado.');return}
  const p=$('progress');p.hidden=false;p.value=0;feedback(out,'Subiendo video…');
- try{await uploadVideo(saved,video,p);hasVideo=true;$('video-state').textContent='Con video';$('exercise-play').hidden=false;file.value='';file.onchange();feedback(out,'Ejercicio guardado y video disponible.')}
+ try{await uploadVideo(saved,video,p);hasFile=true;$('video-state').textContent='Con video';$('exercise-play').hidden=false;file.value='';file.onchange();feedback(out,'Ejercicio guardado y video disponible.')}
  catch(e){feedback(out,'Ejercicio guardado. '+e.message+' Volvé a guardar para reintentar.',true)}
  finally{p.hidden=true}
  });
@@ -156,7 +163,7 @@ async function library(id){
  const search=c.querySelector('input');
  function draw(){
  const state=$('video-filter').value,m=$('muscle').value;
- $('exercise-list').innerHTML=list.filter(e=>e.name.toLowerCase().includes(search.value.toLowerCase())&&(!m||m===e.muscle)&&(!state||(state==='yes')===!!e.video)).map(e=>'<article class="card row split"><div><h3>'+esc(e.name)+'</h3><small>'+esc([e.muscle,e.equipment].filter(Boolean).join(' · '))+'</small></div><div class="row"><span class="badge">'+(e.video?'Con video':'Sin video')+'</span><button data-edit="'+e.id+'">Editar</button></div></article>').join('')||'<div class="card muted">'+(list.length?'No encontramos ejercicios con esos filtros.':'Todavía no cargaste ejercicios.')+'</div>';
+ $('exercise-list').innerHTML=list.filter(e=>e.name.toLowerCase().includes(search.value.toLowerCase())&&(!m||m===e.muscle)&&(!state||(state==='yes')===hasVideo(e))).map(e=>'<article class="card row split"><div><h3>'+esc(e.name)+'</h3><small>'+esc([e.muscle,e.equipment].filter(Boolean).join(' · '))+'</small></div><div class="row"><span class="badge">'+(hasVideo(e)?'Con video':'Sin video')+'</span><button data-edit="'+e.id+'">Editar</button></div></article>').join('')||'<div class="card muted">'+(list.length?'No encontramos ejercicios con esos filtros.':'Todavía no cargaste ejercicios.')+'</div>';
  $('exercise-list').querySelectorAll('button').forEach(b=>b.onclick=()=>go('biblioteca/'+b.dataset.edit));
  }
  search.oninput=draw;$('muscle').onchange=draw;$('video-filter').onchange=draw;draw();
@@ -182,7 +189,7 @@ function dayView(days,monday,index,weekControl='',isPreview=false){
  const load=e.load==='kg'?es.format(Number(String(e.weight).replace(',','.')))+' kg':e.load==='body'?'Peso corporal':'Sin carga indicada';
  const measure=e.kind==='seconds'?' s':e.amount==1?' repetición':' repeticiones';
  return '<article class="card"><h3>'+esc(e.name)+'</h3><p class="prescription">'+esc(e.sets)+(e.sets==1?' serie':' series')+' × '+esc(e.amount)+measure+' · '+load+' · '+esc(e.rest)+' s de descanso</p>'+
- (e.note?'<p class="note">'+esc(e.note)+'</p>':'')+(e.instructions?'<p class="note muted">'+esc(e.instructions)+'</p>':'')+(e.video?'<button data-video="'+e.exercise+'">Ver video</button>':'')+'</article>';
+ (e.note?'<p class="note">'+esc(e.note)+'</p>':'')+(e.instructions?'<p class="note muted">'+esc(e.instructions)+'</p>':'')+'<div class="actions">'+(e.video?'<button data-video="'+e.exercise+'">Ver video</button>':'')+videoLink(e.youtube)+'</div>'+'</article>';
  }).join(''):'<div class="card muted">'+(monday===thisMonday&&index===dayIndex?'No tenés entrenamiento programado para hoy':'No tenés entrenamiento programado para este día')+'</div>';
  return heading+selectors+'<div class="stack">'+cards+'</div>'+(isPreview?'<div id="preview-player"></div>':'');
 }
@@ -279,7 +286,7 @@ async function routines(id){
  showDialog('<h2>Agregar ejercicio</h2>'+input('Buscar por nombre','find-exercise','','type="search" id="pick-search"')+'<div id="pick-list" class="stack"></div>');
  const search=$('pick-search');
  function filter(){
- $('pick-list').innerHTML=exercises.filter(e=>e.name.toLowerCase().includes(search.value.toLowerCase())).map(e=>'<div class="card row split"><div><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.muscle)+(e.video?'':' · Sin video')+'</small></div><button data-add="'+e.id+'">Agregar</button></div>').join('')||'<p class="muted">No hay ejercicios disponibles para esta búsqueda.</p>';
+ $('pick-list').innerHTML=exercises.filter(e=>e.name.toLowerCase().includes(search.value.toLowerCase())).map(e=>'<div class="card row split"><div><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.muscle)+(hasVideo(e)?'':' · Sin video')+'</small></div><button data-add="'+e.id+'">Agregar</button></div>').join('')||'<p class="muted">No hay ejercicios disponibles para esta búsqueda.</p>';
  $('pick-list').querySelectorAll('button').forEach(b=>b.onclick=()=>{d.items.push({exercise:b.dataset.add,sets:3,kind:'reps',amount:10,load:'none',weight:null,rest:60,note:''});modal.close();draw();mark()});
  }
  search.oninput=filter;filter();search.focus();
