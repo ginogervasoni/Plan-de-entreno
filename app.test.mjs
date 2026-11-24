@@ -78,6 +78,22 @@ test('recorrido privado con dos alumnos, borrador, duplicación y MP4',async t=>
  assert.equal(weight(await read('/weeks/'+wa,a.cookie)),47.5);
  await call('/exercises/'+x+'/video',{method:'PUT',cookie:coach,bytes:blue});
  await read(aClip,a.cookie,404);
+ const youtube='https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+ await call('/exercises',{method:'POST',cookie:coach,json:{name:'Inválido',youtube:'https://youtube.com.example.test/watch?v=dQw4w9WgXcQ'},status:400});
+ const linkOnly=await write('/exercises',{name:'Ejercicio con enlace',youtube:'https://youtu.be/dQw4w9WgXcQ?si=demo'});
+ assert.equal(linkOnly.youtube,youtube);
+ const linked=days(55);
+ linked[0].items[0].exercise=linkOnly.id;
+ assert.deepEqual(await write('/weeks/'+duplicate,{days:linked,publish:true},'PUT'),{});
+ assert.equal((await read('/weeks/'+duplicate,a.cookie)).days[0].items[0].youtube,youtube);
+ await read('/weeks/'+duplicate,b.cookie,404);
+ await write('/exercises',{id:x,name:'Sentadilla',youtube:'https://www.youtube.com/shorts/dQw4w9WgXcQ'});
+ const withBoth=(await read('/weeks/'+wa,a.cookie)).days[0].items[0];
+ assert.equal(withBoth.youtube,youtube);
+ assert.equal(withBoth.video,true);
+ await write('/exercises',{id:x,name:'Sentadilla',youtube:''});
+ assert.equal((await read('/weeks/'+wa,a.cookie)).days[0].items[0].youtube,null);
+
  assert.deepEqual(await read(await videoPath(a.cookie),a.cookie),blue);
  assert.deepEqual(await read(await videoPath(b.cookie),b.cookie),blue);
 });
