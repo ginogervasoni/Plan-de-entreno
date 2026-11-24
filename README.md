@@ -1,10 +1,12 @@
-# Plan de Entreno
+# Axis Lab
+
+*La diferencia se entrena.*
 
 Aplicación privada para un entrenador y sus alumnos. Usa Node.js 24, SQLite y almacenamiento local privado de MP4. La interfaz está en español rioplatense y la semana actual se calcula en America/Argentina/Buenos_Aires. La base empieza vacía.
 
 ## Vista web
 
-[Abrí la demostración privada de Plan de Entreno](https://plan-de-entreno-gino.ginogervasoni.chatgpt.site/). Ingresá con la cuenta de ChatGPT propietaria del sitio. La demostración usa rutinas de ejemplo y guarda los cambios solo hasta que recargues.
+[Abrí la demostración privada de Axis Lab](https://plan-de-entreno-gino.ginogervasoni.chatgpt.site/). Ingresá con la cuenta de ChatGPT propietaria del sitio. La demostración usa rutinas de ejemplo y guarda los cambios solo hasta que recargues.
 
 ## Puesta en marcha
 
