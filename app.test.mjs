@@ -1,0 +1,83 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { once } from 'node:events';
+import net from 'node:net';
+const exec=promisify(execFile);
+test('recorrido privado con dos alumnos, borrador, duplicación y MP4',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'entreno-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const socket=net.createServer().listen(0,'127.0.0.1');
+ await once(socket,'listening');
+ const port=socket.address().port;
+ await new Promise(resolve=>socket.close(resolve));
+ const origin='http://127.0.0.1:'+port;
+ const secret='Prueba-Entreno-2026',coachEmail='coach@example.test';
+ const env={...process.env,DATA_DIR:dir,APP_URL:origin,PORT:String(port),COACH_EMAIL:coachEmail,COACH_PASSWORD:secret};
+ await exec(process.execPath,['server.mjs','--coach'],{env});
+ const p=spawn(process.execPath,['server.mjs'],{env,stdio:['ignore','pipe','inherit']});
+ t.after(async()=>{if(p.exitCode===null){p.kill();await once(p,'exit')}});
+ await once(p.stdout,'data');
+ async function call(path,{method='GET',cookie='',json,bytes,range,status=200}={}){
+ const response=await fetch(origin+'/api'+path,{method,headers:{Origin:origin,Cookie:cookie,...(json?{'Content-Type':'application/json'}:{}),...(bytes?{'Content-Type':'video/mp4'}:{}),...(range?{Range:range}:{})},body:bytes||JSON.stringify(json)});
+ const media=response.headers.get('content-type')==='video/mp4';
+ const data=media?Buffer.from(await response.arrayBuffer()):await response.json();
+ assert.equal(response.status,status,JSON.stringify(media?'MP4':data));
+ return {data,cookie:response.headers.get('set-cookie')?.split(';')[0],headers:response.headers};
+ }
+ const signIn=async email=>(await call('/login',{method:'POST',json:{email,password:secret}})).cookie;
+ const coach=await signIn(coachEmail);
+ const write=(path,json,method='POST')=>call(path,{method,json,cookie:coach}).then(r=>r.data);
+ const read=(path,cookie,status=200)=>call(path,{cookie,status}).then(r=>r.data);
+ const {id:x}=await write('/exercises',{name:'Sentadilla',instructions:'Controlá el descenso.'});
+ assert.equal((await read('/exercises',coach))[0].video,0);
+ for(const color of ['red','blue'])await exec('ffmpeg',['-nostdin','-v','error','-f','lavfi','-i',`color=${color}:s=128x96:d=0.4`,'-c:v','libx264','-pix_fmt','yuv420p','-movflags','+faststart',join(dir,color+'.mp4')]);
+ const red=await readFile(join(dir,'red.mp4')),blue=await readFile(join(dir,'blue.mp4'));
+ await call('/exercises/'+x+'/video',{method:'PUT',cookie:coach,bytes:red});
+ const videoPath=async cookie=>(await read('/media/'+x,cookie)).url.slice(4);
+ const coachClip=await videoPath(coach);
+ assert.deepEqual((await call(coachClip,{cookie:coach,range:'bytes=0-63',status:206})).data,red.subarray(0,64));
+ async function student(name){
+ const email=name+'@example.test';
+ const {id}=await write('/students',{name,email});
+ const invite=await write('/students/'+id+'/invite',{});
+ const token=new URL(invite.link).searchParams.get('invitacion');
+ await call('/activate',{method:'POST',json:{token,password:secret}});
+ await call('/activate',{method:'POST',json:{token,password:secret},status:400});
+ return {id,cookie:await signIn(email)};
+ }
+ const a=await student('ana'),b=await student('bruno');
+ async function week(student,monday='2026-11-23',copy){
+ return (await write('/weeks',{student:student.id,monday,copy})).id;
+ }
+ const wa=await week(a),wb=await week(b);
+ const days=weight=>[{index:0,name:'Tren inferior',items:[{exercise:x,sets:4,kind:'reps',amount:8,load:'kg',weight,rest:90,note:'Bajá de forma controlada.'}]}];
+ await write('/weeks/'+wa,{days:days('47,5')},'PUT');
+ await read('/weeks/'+wa,a.cookie,404);
+ await read('/media/'+x,a.cookie,404);
+ for(const [id,weight] of [[wa,'47,5'],[wb,'60']])await write('/weeks/'+id,{days:days(weight),publish:true},'PUT');
+ const weight=(w)=>w.days[0].items[0].weight;
+ assert.equal(weight(await read('/weeks/'+wa,a.cookie)),47.5);
+ assert.equal(weight(await read('/weeks/'+wb,b.cookie)),60);
+ await read('/weeks/'+wa,b.cookie,404);
+ await read('/weeks/'+wb,a.cookie,404);
+ const aClip=await videoPath(a.cookie),bClip=await videoPath(b.cookie);
+ assert.deepEqual(await read(aClip,a.cookie),red);
+ assert.deepEqual(await read(bClip,b.cookie),red);
+ await read(aClip,b.cookie,404);
+ const duplicate=await week(a,'2026-11-30',wa);
+ assert.equal((await read('/weeks/'+duplicate,coach)).draft[0].items[0].weight,47.5);
+ await write('/weeks/'+duplicate,{days:days(52)},'PUT');
+ assert.equal(weight(await read('/weeks/'+wa,a.cookie)),47.5);
+ await read('/weeks/'+duplicate,a.cookie,404);
+ await write('/weeks/'+wa,{days:days(50)},'PUT');
+ assert.equal(weight(await read('/weeks/'+wa,a.cookie)),47.5);
+ await call('/exercises/'+x+'/video',{method:'PUT',cookie:coach,bytes:blue});
+ await read(aClip,a.cookie,404);
+ assert.deepEqual(await read(await videoPath(a.cookie),a.cookie),blue);
+ assert.deepEqual(await read(await videoPath(b.cookie),b.cookie),blue);
+});
