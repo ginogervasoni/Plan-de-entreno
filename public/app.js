@@ -3,7 +3,7 @@ let current, notifyTimer;
 const names=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 const short=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 const es=new Intl.NumberFormat('es-AR',{maximumFractionDigits:12});
-const brand='<div class="brand"><span aria-hidden="true">P</span>Plan de Entreno</div>';
+const brand='<div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>Axis Lab</strong><small>La diferencia se entrena.</small></div></div>';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=(id)=>document.getElementById(id);
 const btn=(label,id,primary=false)=>'<button type="button" '+(id?'id="'+id+'" ':'')+(primary?'class="primary"':'')+'>'+label+'</button>';
@@ -337,7 +337,7 @@ async function render(){
  else if(section==='rutinas')await routines(id);
  else await students(section==='alumnos'?id:null);
  }catch(e){
- const c=layout('','Plan de Entreno','',btn('Volver al panel','back-panel'));
+ const c=layout('','Axis Lab','',btn('Volver al panel','back-panel'));
  c.textContent=e.message;$('back-panel').onclick=()=>go(current.role==='coach'?'alumnos':'');
  }
 }
