@@ -62,6 +62,15 @@ if(process.argv.includes('--coach')){
  console.log('Cuenta de entrenador configurada.');
  process.exit(0);
 }
+// Bootstrap a new installation without replacing an existing coach or password.
+if(process.env.COACH_PASSWORD&&!one("SELECT id FROM users WHERE role='coach'")){
+ const address=email(process.env.COACH_EMAIL), secret=process.env.COACH_PASSWORD;
+ requireValue(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)&&goodPassword(secret),'Configurá COACH_EMAIL y COACH_PASSWORD (entre 12 y 128 caracteres).');
+ const encoded=await password(secret);
+ run("INSERT INTO users VALUES(?,?,?,?,?) ON CONFLICT(role) WHERE role='coach' DO NOTHING",
+ token(),clean(process.env.COACH_NAME)||'Entrenador',address,encoded,'coach');
+ console.log('Cuenta inicial de entrenador creada.');
+}
 const dummy=await password(token());
 const datePattern=/^\d{4}-\d{2}-\d{2}$/;
 function monday(s){
